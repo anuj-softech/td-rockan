@@ -48,6 +48,22 @@ jobs:
         unzip android-ndk-r21e-linux-x86_64.zip
         echo "ANDROID_NDK_HOME=$GITHUB_WORKSPACE/android-ndk-r21e" >> $GITHUB_ENV
 
+    - name: Download and set up OpenSSL
+      run: |
+        wget https://www.openssl.org/source/openssl-3.3.0.tar.gz
+        tar -xzf openssl-3.3.0.tar.gz
+        cd openssl-3.3.0
+        ./config
+        make
+        sudo make install
+        echo "OPENSSL_ROOT_DIR=/usr/local/ssl" >> $GITHUB_ENV
+        echo "OPENSSL_LIBRARIES=/usr/local/ssl/lib" >> $GITHUB_ENV
+
+    - name: Generate necessary files
+      run: |
+        mkdir -p tdutils/generate/auto
+        touch tdutils/generate/auto/mime_type_to_extension.cpp
+
     - name: Configure and build TDLib
       run: |
         mkdir build
