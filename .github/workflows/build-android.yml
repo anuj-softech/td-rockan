@@ -10,9 +10,8 @@ on:
       - master
 
 jobs:
-  build:
+ build:
     runs-on: ubuntu-latest
-
     steps:
     - name: Checkout repository
       uses: actions/checkout@v2
@@ -44,31 +43,31 @@ jobs:
 
     - name: Check environment
       run: |
-        cd td/example/android
+        cd example/android
         ./check-environment.sh
 
     - name: Fetch Android SDK
       run: |
-        cd td/example/android
+        cd example/android
         ./fetch-sdk.sh
 
     - name: Build OpenSSL
       run: |
-        cd td/example/android
+        cd example/android
         ./build-openssl.sh
 
     - name: Build TDLib
       run: |
-        cd td/example/android
+        cd example/android
         ./build-tdlib.sh
 
     - name: Compress tdlib folder
       run: |
-        cd td/example/android
+        cd example/android
         zip -r tdlib.zip tdlib
 
     - name: Upload tdlib folder as zip
       uses: actions/upload-artifact@v2
       with:
         name: tdlib-android
-        path: td/example/android/tdlib.zip
+        path: example/android/tdlib.zip
