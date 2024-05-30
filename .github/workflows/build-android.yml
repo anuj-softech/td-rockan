@@ -1,0 +1,59 @@
+name: Build TDLib for Android
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        arch: [arm64-v8a, armeabi-v7a, x86, x86_64]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up JDK 11
+      uses: actions/setup-java@v2
+      with:
+        distribution: 'adopt'
+        java-version: '11'
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          autoconf \
+          automake \
+          build-essential \
+          clang \
+          cmake \
+          git \
+          libssl-dev \
+          pkg-config \
+          zlib1g-dev
+
+    - name: Set up Android NDK
+      uses: android/android-ndk@v1
+      with:
+        ndk-version: '21.4.7075529'
+
+    - name: Configure and build TDLib
+      run: |
+        mkdir build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake -DANDROID_ABI=${{ matrix.arch }} -DANDROID_NATIVE_API_LEVEL=21 ..
+        cmake --build . --config Release
+
+    - name: Upload .so files
+      uses: actions/upload-artifact@v2
+      with:
+        name: tdlib-android-${{ matrix.arch }}
+        path: build/libtdjson.so
