@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      
   pull_request:
     branches:
       - master
@@ -11,10 +12,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        arch: [armeabi-v7a]
 
     steps:
     - name: Checkout repository
@@ -40,40 +37,33 @@ jobs:
           pkg-config \
           zlib1g-dev \
           unzip \
-          wget
+          wget \
+          php \
+          perl \
+          gperf
 
-    - name: Download and set up Android NDK
+    - name: Check environment
       run: |
-        wget https://dl.google.com/android/repository/android-ndk-r21e-linux-x86_64.zip
-        unzip android-ndk-r21e-linux-x86_64.zip
-        echo "ANDROID_NDK_HOME=$GITHUB_WORKSPACE/android-ndk-r21e" >> $GITHUB_ENV
+        cd td/examples/android
+        ./check-environment.sh
 
-    - name: Download and set up OpenSSL
+    - name: Fetch Android SDK
       run: |
-        wget https://www.openssl.org/source/openssl-1.1.1k.tar.gz
-        tar -xzf openssl-1.1.1k.tar.gz
-        cd openssl-1.1.1k
-        ./config
-        make
-        sudo make install
-        echo "OPENSSL_ROOT_DIR=/usr/local/ssl" >> $GITHUB_ENV
-        echo "OPENSSL_LIBRARIES=/usr/local/ssl/lib" >> $GITHUB_ENV
+        cd td/examples/android
+        ./fetch-sdk.sh
 
-
-    - name: Generate necessary files
+    - name: Build OpenSSL
       run: |
-        mkdir -p tdutils/generate/auto
-        touch tdutils/generate/auto/mime_type_to_extension.cpp
+        cd td/examples/android
+        ./build-openssl.sh
 
-    - name: Configure and build TDLib
+    - name: Build TDLib
       run: |
-        mkdir build
-        cd build
-        cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake -DANDROID_ABI=${{ matrix.arch }} -DANDROID_NATIVE_API_LEVEL=21 ..
-        cmake --build . --config Release
+        cd td/examples/android
+        ./build-tdlib.sh
 
     - name: Upload .so files
       uses: actions/upload-artifact@v2
       with:
-        name: tdlib-android-${{ matrix.arch }}
-        path: build/libtdjson.so
+        name: tdlib-android-libs
+        path: tdlib/libs/**/*.so
