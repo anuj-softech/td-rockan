@@ -1,5 +1,5 @@
-if ((CMAKE_MAJOR_VERSION LESS 3) OR (CMAKE_VERSION VERSION_LESS "3.0.2"))
-  message(FATAL_ERROR "CMake >= 3.0.2 is required")
+if ((CMAKE_MAJOR_VERSION LESS 3) OR (CMAKE_VERSION VERSION_LESS "3.10"))
+  message(FATAL_ERROR "CMake >= 3.10 is required")
 endif()
 
 if (NOT OPENSSL_FOUND)
@@ -7,7 +7,7 @@ if (NOT OPENSSL_FOUND)
   find_package(ZLIB REQUIRED)
 endif()
 
-#TODO: all benchmarks in one file
+# TODO: all benchmarks in one file
 add_executable(bench_crypto bench_crypto.cpp)
 target_link_libraries(bench_crypto PRIVATE tdutils ${OPENSSL_CRYPTO_LIBRARY} ${CMAKE_DL_LIBS} ${ZLIB_LIBRARIES})
 if (WIN32)

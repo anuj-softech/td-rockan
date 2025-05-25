@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2023
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -8,11 +8,16 @@
 
 #include "td/telegram/BusinessConnectionId.h"
 #include "td/telegram/DialogId.h"
-#include "td/telegram/files/FileId.h"
+#include "td/telegram/files/FileUploadId.h"
+#include "td/telegram/MessageEffectId.h"
+#include "td/telegram/MessageId.h"
 #include "td/telegram/MessageInputReplyTo.h"
 #include "td/telegram/net/DcId.h"
+#include "td/telegram/StarGiftSettings.h"
+#include "td/telegram/StoryId.h"
 #include "td/telegram/td_api.h"
 #include "td/telegram/telegram_api.h"
+#include "td/telegram/UserId.h"
 
 #include "td/actor/actor.h"
 
@@ -39,7 +44,11 @@ class BusinessConnectionManager final : public Actor {
   BusinessConnectionManager &operator=(BusinessConnectionManager &&) = delete;
   ~BusinessConnectionManager() final;
 
+  Status check_business_connection(const BusinessConnectionId &connection_id) const;
+
   Status check_business_connection(const BusinessConnectionId &connection_id, DialogId dialog_id) const;
+
+  UserId get_business_connection_user_id(const BusinessConnectionId &connection_id) const;
 
   DcId get_business_connection_dc_id(const BusinessConnectionId &connection_id) const;
 
@@ -61,19 +70,75 @@ class BusinessConnectionManager final : public Actor {
 
   void send_message(BusinessConnectionId business_connection_id, DialogId dialog_id,
                     td_api::object_ptr<td_api::InputMessageReplyTo> &&reply_to, bool disable_notification,
-                    bool protect_content, int64 effect_id, td_api::object_ptr<td_api::ReplyMarkup> &&reply_markup,
+                    bool protect_content, MessageEffectId effect_id,
+                    td_api::object_ptr<td_api::ReplyMarkup> &&reply_markup,
                     td_api::object_ptr<td_api::InputMessageContent> &&input_message_content,
                     Promise<td_api::object_ptr<td_api::businessMessage>> &&promise);
 
   void send_message_album(BusinessConnectionId business_connection_id, DialogId dialog_id,
                           td_api::object_ptr<td_api::InputMessageReplyTo> &&reply_to, bool disable_notification,
-                          bool protect_content, int64 effect_id,
+                          bool protect_content, MessageEffectId effect_id,
                           vector<td_api::object_ptr<td_api::InputMessageContent>> &&input_message_contents,
                           Promise<td_api::object_ptr<td_api::businessMessages>> &&promise);
+
+  void edit_business_message_text(BusinessConnectionId business_connection_id, DialogId dialog_id, MessageId message_id,
+                                  td_api::object_ptr<td_api::ReplyMarkup> &&reply_markup,
+                                  td_api::object_ptr<td_api::InputMessageContent> &&input_message_content,
+                                  Promise<td_api::object_ptr<td_api::businessMessage>> &&promise);
+
+  void edit_business_message_live_location(BusinessConnectionId business_connection_id, DialogId dialog_id,
+                                           MessageId message_id, td_api::object_ptr<td_api::ReplyMarkup> &&reply_markup,
+                                           td_api::object_ptr<td_api::location> &&input_location, int32 live_period,
+                                           int32 heading, int32 proximity_alert_radius,
+                                           Promise<td_api::object_ptr<td_api::businessMessage>> &&promise);
+
+  void edit_business_message_media(BusinessConnectionId business_connection_id, DialogId dialog_id,
+                                   MessageId message_id, td_api::object_ptr<td_api::ReplyMarkup> &&reply_markup,
+                                   td_api::object_ptr<td_api::InputMessageContent> &&input_message_content,
+                                   Promise<td_api::object_ptr<td_api::businessMessage>> &&promise);
+
+  void edit_business_message_caption(BusinessConnectionId business_connection_id, DialogId dialog_id,
+                                     MessageId message_id, td_api::object_ptr<td_api::ReplyMarkup> &&reply_markup,
+                                     td_api::object_ptr<td_api::formattedText> &&input_caption, bool invert_media,
+                                     Promise<td_api::object_ptr<td_api::businessMessage>> &&promise);
+
+  void edit_business_message_reply_markup(BusinessConnectionId business_connection_id, DialogId dialog_id,
+                                          MessageId message_id, td_api::object_ptr<td_api::ReplyMarkup> &&reply_markup,
+                                          Promise<td_api::object_ptr<td_api::businessMessage>> &&promise);
+
+  void stop_poll(BusinessConnectionId business_connection_id, DialogId dialog_id, MessageId message_id,
+                 td_api::object_ptr<td_api::ReplyMarkup> &&reply_markup,
+                 Promise<td_api::object_ptr<td_api::businessMessage>> &&promise);
+
+  void read_business_message(BusinessConnectionId business_connection_id, DialogId dialog_id, MessageId message_id,
+                             Promise<Unit> &&promise);
+
+  void delete_business_messages(BusinessConnectionId business_connection_id, const vector<MessageId> &message_ids,
+                                Promise<Unit> &&promise);
+
+  void delete_business_story(BusinessConnectionId business_connection_id, StoryId story_id, Promise<Unit> &&promise);
+
+  void set_business_name(BusinessConnectionId business_connection_id, const string &first_name, const string &last_name,
+                         Promise<Unit> &&promise);
+
+  void set_business_about(BusinessConnectionId business_connection_id, const string &about, Promise<Unit> &&promise);
+
+  void set_business_username(BusinessConnectionId business_connection_id, const string &username,
+                             Promise<Unit> &&promise);
+
+  void set_business_gift_settings(BusinessConnectionId business_connection_id, StarGiftSettings settings,
+                                  Promise<Unit> &&promise);
+
+  void get_business_star_status(BusinessConnectionId business_connection_id,
+                                Promise<td_api::object_ptr<td_api::starAmount>> &&promise);
+
+  void transfer_business_stars(BusinessConnectionId business_connection_id, int64 star_count, Promise<Unit> &&promise);
 
   void get_current_state(vector<td_api::object_ptr<td_api::Update>> &updates) const;
 
  private:
+  static constexpr size_t MAX_NAME_LENGTH = 64;  // server-side limit for first/last name
+
   struct BusinessConnection;
   struct PendingMessage;
   class SendBusinessMessageQuery;
@@ -82,6 +147,8 @@ class BusinessConnectionManager final : public Actor {
   class UploadBusinessMediaQuery;
   class UploadMediaCallback;
   class UploadThumbnailCallback;
+  class EditBusinessMessageQuery;
+  class StopBusinessPollQuery;
 
   struct UploadMediaResult {
     unique_ptr<PendingMessage> message_;
@@ -98,9 +165,15 @@ class BusinessConnectionManager final : public Actor {
     size_t finished_count_ = 0;
     vector<Result<UploadMediaResult>> upload_results_;
     Promise<td_api::object_ptr<td_api::businessMessages>> promise_;
+    unique_ptr<PendingMessage> paid_media_message_;
+    Promise<td_api::object_ptr<td_api::businessMessage>> paid_media_promise_;
   };
 
   void tear_down() final;
+
+  Status check_business_message_id(MessageId message_id) const;
+
+  Status check_business_story_id(StoryId story_id) const;
 
   void on_get_business_connection(const BusinessConnectionId &connection_id,
                                   Result<telegram_api::object_ptr<telegram_api::Updates>> r_updates);
@@ -114,7 +187,8 @@ class BusinessConnectionManager final : public Actor {
   unique_ptr<PendingMessage> create_business_message_to_send(BusinessConnectionId business_connection_id,
                                                              DialogId dialog_id, MessageInputReplyTo &&input_reply_to,
                                                              bool disable_notification, bool protect_content,
-                                                             int64 effect_id, unique_ptr<ReplyMarkup> &&reply_markup,
+                                                             MessageEffectId effect_id,
+                                                             unique_ptr<ReplyMarkup> &&reply_markup,
                                                              InputMessageContent &&input_content) const;
 
   void do_send_message(unique_ptr<PendingMessage> &&message,
@@ -123,10 +197,6 @@ class BusinessConnectionManager final : public Actor {
   void process_sent_business_message(telegram_api::object_ptr<telegram_api::Updates> &&updates_ptr,
                                      Promise<td_api::object_ptr<td_api::businessMessage>> &&promise);
 
-  static FileId get_message_file_id(const unique_ptr<PendingMessage> &message);
-
-  FileId get_message_thumbnail_file_id(const unique_ptr<PendingMessage> &message, FileId file_id) const;
-
   void upload_media(unique_ptr<PendingMessage> &&message, Promise<UploadMediaResult> &&promise,
                     vector<int> bad_parts = {});
 
@@ -134,11 +204,11 @@ class BusinessConnectionManager final : public Actor {
                            telegram_api::object_ptr<telegram_api::InputMedia> &&input_media,
                            Promise<td_api::object_ptr<td_api::businessMessage>> &&promise);
 
-  void on_upload_media(FileId file_id, telegram_api::object_ptr<telegram_api::InputFile> input_file);
+  void on_upload_media(FileUploadId file_upload_id, telegram_api::object_ptr<telegram_api::InputFile> input_file);
 
-  void on_upload_media_error(FileId file_id, Status status);
+  void on_upload_media_error(FileUploadId file_upload_id, Status status);
 
-  void on_upload_thumbnail(FileId thumbnail_file_id,
+  void on_upload_thumbnail(FileUploadId thumbnail_file_upload_id,
                            telegram_api::object_ptr<telegram_api::InputFile> thumbnail_input_file);
 
   void do_upload_media(BeingUploadedMedia &&being_uploaded_media,
@@ -150,10 +220,26 @@ class BusinessConnectionManager final : public Actor {
 
   int64 generate_new_media_album_id();
 
+  void do_send_message_album(int64 request_id, BusinessConnectionId business_connection_id, DialogId dialog_id,
+                             MessageInputReplyTo &&input_reply_to, bool disable_notification, bool protect_content,
+                             MessageEffectId effect_id, vector<InputMessageContent> &&message_contents);
+
+  void fail_send_message_album(int64 request_id, Status error);
+
   void on_upload_message_album_media(int64 request_id, size_t media_pos, Result<UploadMediaResult> &&result);
 
   void process_sent_business_message_album(telegram_api::object_ptr<telegram_api::Updates> &&updates_ptr,
                                            Promise<td_api::object_ptr<td_api::businessMessages>> &&promise);
+
+  void on_upload_message_paid_media(int64 request_id, size_t media_pos, Result<UploadMediaResult> &&result);
+
+  void on_fail_send_message(unique_ptr<PendingMessage> &&message, const Status &error);
+
+  void do_edit_message_media(unique_ptr<PendingMessage> &&message,
+                             Promise<td_api::object_ptr<td_api::businessMessage>> &&promise);
+
+  void do_edit_business_message_media(Result<UploadMediaResult> &&result,
+                                      Promise<td_api::object_ptr<td_api::businessMessage>> &&promise);
 
   td_api::object_ptr<td_api::updateBusinessConnection> get_update_business_connection(
       const BusinessConnection *connection) const;
@@ -170,8 +256,8 @@ class BusinessConnectionManager final : public Actor {
   std::shared_ptr<UploadMediaCallback> upload_media_callback_;
   std::shared_ptr<UploadThumbnailCallback> upload_thumbnail_callback_;
 
-  FlatHashMap<FileId, BeingUploadedMedia, FileIdHash> being_uploaded_files_;
-  FlatHashMap<FileId, BeingUploadedMedia, FileIdHash> being_uploaded_thumbnails_;
+  FlatHashMap<FileUploadId, BeingUploadedMedia, FileUploadIdHash> being_uploaded_files_;
+  FlatHashMap<FileUploadId, BeingUploadedMedia, FileUploadIdHash> being_uploaded_thumbnails_;
 
   Td *td_;
   ActorShared<> parent_;

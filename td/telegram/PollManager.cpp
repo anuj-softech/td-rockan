@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2024
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -18,6 +18,7 @@
 #include "td/telegram/MessageId.h"
 #include "td/telegram/MessageSender.h"
 #include "td/telegram/MessagesManager.h"
+#include "td/telegram/OnlineManager.h"
 #include "td/telegram/PollId.hpp"
 #include "td/telegram/PollManager.hpp"
 #include "td/telegram/StateManager.h"
@@ -204,13 +205,13 @@ class StopPollQuery final : public Td::ResultHandler {
 
     auto message_id = message_full_id.get_message_id().get_server_message_id().get();
     auto poll = telegram_api::make_object<telegram_api::poll>(
-        poll_id.get(), telegram_api::poll::CLOSED_MASK, false /*ignored*/, false /*ignored*/, false /*ignored*/,
-        false /*ignored*/, telegram_api::make_object<telegram_api::textWithEntities>(string(), Auto()), Auto(), 0, 0);
+        poll_id.get(), 0, true, false, false, false,
+        telegram_api::make_object<telegram_api::textWithEntities>(string(), Auto()), Auto(), 0, 0);
     auto input_media = telegram_api::make_object<telegram_api::inputMediaPoll>(0, std::move(poll),
                                                                                vector<BufferSlice>(), string(), Auto());
     send_query(G()->net_query_creator().create(
-        telegram_api::messages_editMessage(flags, false /*ignored*/, false /*ignored*/, std::move(input_peer),
-                                           message_id, string(), std::move(input_media), std::move(input_reply_markup),
+        telegram_api::messages_editMessage(flags, false, false, std::move(input_peer), message_id, string(),
+                                           std::move(input_media), std::move(input_reply_markup),
                                            vector<tl_object_ptr<telegram_api::MessageEntity>>(), 0, 0),
         {{poll_id}, {dialog_id_}}));
   }
@@ -434,7 +435,7 @@ void PollManager::remove_unallowed_entities(FormattedText &text) {
 }
 
 td_api::object_ptr<td_api::pollOption> PollManager::get_poll_option_object(const PollOption &poll_option) {
-  return td_api::make_object<td_api::pollOption>(get_formatted_text_object(poll_option.text_, true, -1),
+  return td_api::make_object<td_api::pollOption>(get_formatted_text_object(nullptr, poll_option.text_, true, -1),
                                                  poll_option.voter_count_, 0, poll_option.is_chosen_, false);
 }
 
@@ -563,7 +564,7 @@ td_api::object_ptr<td_api::poll> PollManager::get_poll_object(PollId poll_id, co
         voter_count_diff = -1;
       }
       poll_options.push_back(td_api::make_object<td_api::pollOption>(
-          get_formatted_text_object(poll_option.text_, true, -1),
+          get_formatted_text_object(nullptr, poll_option.text_, true, -1),
           poll_option.voter_count_ - static_cast<int32>(poll_option.is_chosen_), 0, false, is_being_chosen));
     }
   }
@@ -607,7 +608,7 @@ td_api::object_ptr<td_api::poll> PollManager::get_poll_object(PollId poll_id, co
     auto correct_option_id = is_local_poll_id(poll_id) ? -1 : poll->correct_option_id_;
     poll_type = td_api::make_object<td_api::pollTypeQuiz>(
         correct_option_id,
-        get_formatted_text_object(is_local_poll_id(poll_id) ? FormattedText() : poll->explanation_, true, -1));
+        get_formatted_text_object(nullptr, is_local_poll_id(poll_id) ? FormattedText() : poll->explanation_, true, -1));
   } else {
     poll_type = td_api::make_object<td_api::pollTypeRegular>(poll->allow_multiple_answers_);
   }
@@ -637,9 +638,10 @@ td_api::object_ptr<td_api::poll> PollManager::get_poll_object(PollId poll_id, co
       recent_voters.push_back(std::move(recent_voter));
     }
   }
-  return td_api::make_object<td_api::poll>(
-      poll_id.get(), get_formatted_text_object(poll->question_, true, -1), std::move(poll_options), total_voter_count,
-      std::move(recent_voters), poll->is_anonymous_, std::move(poll_type), open_period, close_date, poll->is_closed_);
+  return td_api::make_object<td_api::poll>(poll_id.get(), get_formatted_text_object(nullptr, poll->question_, true, -1),
+                                           std::move(poll_options), total_voter_count, std::move(recent_voters),
+                                           poll->is_anonymous_, std::move(poll_type), open_period, close_date,
+                                           poll->is_closed_);
 }
 
 telegram_api::object_ptr<telegram_api::pollAnswer> PollManager::get_input_poll_option(const PollOption &poll_option) {
@@ -1355,7 +1357,7 @@ void PollManager::stop_local_poll(PollId poll_id) {
 }
 
 double PollManager::get_polling_timeout() const {
-  double result = td_->is_online() ? 60 : 30 * 60;
+  double result = td_->online_manager_->is_online() ? 60 : 30 * 60;
   return result * Random::fast(70, 100) * 0.01;
 }
 
@@ -1530,23 +1532,11 @@ tl_object_ptr<telegram_api::InputMedia> PollManager::get_input_media(PollId poll
   CHECK(poll != nullptr);
 
   int32 poll_flags = 0;
-  if (!poll->is_anonymous_) {
-    poll_flags |= telegram_api::poll::PUBLIC_VOTERS_MASK;
-  }
-  if (poll->allow_multiple_answers_) {
-    poll_flags |= telegram_api::poll::MULTIPLE_CHOICE_MASK;
-  }
-  if (poll->is_quiz_) {
-    poll_flags |= telegram_api::poll::QUIZ_MASK;
-  }
   if (poll->open_period_ != 0) {
     poll_flags |= telegram_api::poll::CLOSE_PERIOD_MASK;
   }
   if (poll->close_date_ != 0) {
     poll_flags |= telegram_api::poll::CLOSE_DATE_MASK;
-  }
-  if (poll->is_closed_) {
-    poll_flags |= telegram_api::poll::CLOSED_MASK;
   }
 
   int32 flags = 0;
@@ -1564,7 +1554,7 @@ tl_object_ptr<telegram_api::InputMedia> PollManager::get_input_media(PollId poll
   return telegram_api::make_object<telegram_api::inputMediaPoll>(
       flags,
       telegram_api::make_object<telegram_api::poll>(
-          0, poll_flags, false /*ignored*/, false /*ignored*/, false /*ignored*/, false /*ignored*/,
+          0, poll_flags, poll->is_closed_, !poll->is_anonymous_, poll->allow_multiple_answers_, poll->is_quiz_,
           get_input_text_with_entities(nullptr, poll->question_, "get_input_media_poll"),
           transform(poll->options_, get_input_poll_option), poll->open_period_, poll->close_date_),
       std::move(correct_answers), poll->explanation_.text,
@@ -1692,7 +1682,7 @@ PollId PollManager::on_get_poll(PollId poll_id, tl_object_ptr<telegram_api::poll
       poll->question_ = std::move(question);
       is_changed = true;
     }
-    poll_server_is_closed = (poll_server->flags_ & telegram_api::poll::CLOSED_MASK) != 0;
+    poll_server_is_closed = poll_server->closed_;
     if (poll_server_is_closed && !poll->is_closed_) {
       poll->is_closed_ = poll_server_is_closed;
       is_changed = true;
@@ -1732,13 +1722,13 @@ PollId PollManager::on_get_poll(PollId poll_id, tl_object_ptr<telegram_api::poll
         need_save_to_database = true;
       }
     }
-    bool is_anonymous = (poll_server->flags_ & telegram_api::poll::PUBLIC_VOTERS_MASK) == 0;
+    bool is_anonymous = !poll_server->public_voters_;
     if (is_anonymous != poll->is_anonymous_) {
       poll->is_anonymous_ = is_anonymous;
       is_changed = true;
     }
-    bool allow_multiple_answers = (poll_server->flags_ & telegram_api::poll::MULTIPLE_CHOICE_MASK) != 0;
-    bool is_quiz = (poll_server->flags_ & telegram_api::poll::QUIZ_MASK) != 0;
+    bool allow_multiple_answers = poll_server->multiple_choice_;
+    bool is_quiz = poll_server->quiz_;
     if (is_quiz && allow_multiple_answers) {
       LOG(ERROR) << "Receive quiz " << poll_id << " from " << source << " allowing multiple answers";
       allow_multiple_answers = false;

@@ -1,14 +1,14 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2024
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 #pragma once
 
+#include "td/telegram/BusinessConnectionId.h"
 #include "td/telegram/MessageFullId.h"
 #include "td/telegram/td_api.h"
-#include "td/telegram/UserId.h"
 
 #include "td/utils/common.h"
 #include "td/utils/Promise.h"
@@ -47,9 +47,8 @@ void delete_saved_order_info(Td *td, Promise<Unit> &&promise);
 
 void delete_saved_credentials(Td *td, Promise<Unit> &&promise);
 
-void export_invoice(Td *td, td_api::object_ptr<td_api::InputMessageContent> &&invoice, Promise<string> &&promise);
-
-void refund_star_payment(Td *td, UserId user_id, const string &telegram_payment_charge_id, Promise<Unit> &&promise);
+void export_invoice(Td *td, BusinessConnectionId business_connection_id,
+                    td_api::object_ptr<td_api::InputMessageContent> &&invoice, Promise<string> &&promise);
 
 void get_bank_card_info(Td *td, const string &bank_card_number,
                         Promise<td_api::object_ptr<td_api::bankCardInfo>> &&promise);

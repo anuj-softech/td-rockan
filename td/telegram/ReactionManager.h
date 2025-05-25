@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2024
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -8,6 +8,8 @@
 
 #include "td/telegram/ChatReactions.h"
 #include "td/telegram/files/FileId.h"
+#include "td/telegram/MessageEffectId.h"
+#include "td/telegram/PaidReactionType.h"
 #include "td/telegram/ReactionListType.h"
 #include "td/telegram/ReactionType.h"
 #include "td/telegram/ReactionUnavailabilityReason.h"
@@ -83,7 +85,11 @@ class ReactionManager final : public Actor {
 
   void reload_message_effects();
 
-  void get_message_effect(int64 effect_id, Promise<td_api::object_ptr<td_api::messageEffect>> &&promise);
+  void get_message_effect(MessageEffectId effect_id, Promise<td_api::object_ptr<td_api::messageEffect>> &&promise);
+
+  void on_update_default_paid_reaction_type(PaidReactionType type);
+
+  PaidReactionType get_default_paid_reaction_type() const;
 
   void get_current_state(vector<td_api::object_ptr<td_api::Update>> &updates) const;
 
@@ -194,7 +200,7 @@ class ReactionManager final : public Actor {
   };
 
   struct Effect {
-    int64 id_ = 0;
+    MessageEffectId id_;
     string emoji_;
     FileId static_icon_id_;
     FileId effect_sticker_id_;
@@ -202,7 +208,7 @@ class ReactionManager final : public Actor {
     bool is_premium_ = false;
 
     bool is_valid() const {
-      return id_ != 0 && effect_sticker_id_.is_valid();
+      return id_.is_valid() && effect_sticker_id_.is_valid();
     }
 
     bool is_sticker() const {
@@ -229,8 +235,8 @@ class ReactionManager final : public Actor {
   };
 
   struct ActiveEffects {
-    vector<int64> reaction_effects_;
-    vector<int64> sticker_effects_;
+    vector<MessageEffectId> reaction_effects_;
+    vector<MessageEffectId> sticker_effects_;
 
     bool is_empty() const {
       return reaction_effects_.empty() && sticker_effects_.empty();
@@ -269,8 +275,8 @@ class ReactionManager final : public Actor {
 
   SavedReactionTags *get_saved_reaction_tags(SavedMessagesTopicId saved_messages_topic_id);
 
-  void reget_saved_messages_tags(SavedMessagesTopicId saved_messages_topic_id,
-                                 Promise<td_api::object_ptr<td_api::savedMessagesTags>> &&promise);
+  void reload_saved_messages_tags(SavedMessagesTopicId saved_messages_topic_id,
+                                  Promise<td_api::object_ptr<td_api::savedMessagesTags>> &&promise);
 
   void on_get_saved_messages_tags(SavedMessagesTopicId saved_messages_topic_id,
                                   Result<telegram_api::object_ptr<telegram_api::messages_SavedReactionTags>> &&r_tags);
@@ -289,7 +295,7 @@ class ReactionManager final : public Actor {
 
   td_api::object_ptr<td_api::messageEffect> get_message_effect_object(const Effect &effect) const;
 
-  td_api::object_ptr<td_api::messageEffect> get_message_effect_object(int64 effect_id) const;
+  td_api::object_ptr<td_api::messageEffect> get_message_effect_object(MessageEffectId effect_id) const;
 
   td_api::object_ptr<td_api::updateAvailableMessageEffects> get_update_available_message_effects_object() const;
 
@@ -304,6 +310,12 @@ class ReactionManager final : public Actor {
   void load_active_message_effects();
 
   void update_active_message_effects();
+
+  void send_update_default_paid_reaction_type() const;
+
+  void load_default_paid_reaction_type();
+
+  void save_default_paid_reaction_type() const;
 
   Td *td_;
   ActorShared<> parent_;
@@ -331,7 +343,10 @@ class ReactionManager final : public Actor {
   Effects message_effects_;
   ActiveEffects active_message_effects_;
 
-  vector<std::pair<int64, Promise<td_api::object_ptr<td_api::messageEffect>>>> pending_get_message_effect_queries_;
+  vector<std::pair<MessageEffectId, Promise<td_api::object_ptr<td_api::messageEffect>>>>
+      pending_get_message_effect_queries_;
+
+  PaidReactionType default_paid_reaction_type_;
 };
 
 }  // namespace td

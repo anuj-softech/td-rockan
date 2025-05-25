@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2024
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -76,29 +76,21 @@ telegram_api::object_ptr<telegram_api::InputMedia> InputMessageText::get_input_m
   if (web_page_url.empty()) {
     return nullptr;
   }
-  int32 flags = 0;
-  if (force_small_media) {
-    flags |= telegram_api::inputMediaWebPage::FORCE_SMALL_MEDIA_MASK;
-  }
-  if (force_large_media) {
-    flags |= telegram_api::inputMediaWebPage::FORCE_LARGE_MEDIA_MASK;
-  }
-  if (!text.text.empty()) {
-    flags |= telegram_api::inputMediaWebPage::OPTIONAL_MASK;
-  }
-  return telegram_api::make_object<telegram_api::inputMediaWebPage>(flags, false /*ignored*/, false /*ignored*/,
-                                                                    false /*ignored*/, web_page_url);
+  auto is_optional = !text.text.empty();
+  return telegram_api::make_object<telegram_api::inputMediaWebPage>(0, force_large_media, force_small_media,
+                                                                    is_optional, web_page_url);
 }
 
 // used only for draft
-td_api::object_ptr<td_api::inputMessageText> InputMessageText::get_input_message_text_object() const {
+td_api::object_ptr<td_api::inputMessageText> InputMessageText::get_input_message_text_object(
+    const UserManager *user_manager) const {
   td_api::object_ptr<td_api::linkPreviewOptions> options;
   if (!web_page_url.empty() || disable_web_page_preview || force_small_media || force_large_media || show_above_text) {
     options = td_api::make_object<td_api::linkPreviewOptions>(disable_web_page_preview, web_page_url, force_small_media,
                                                               force_large_media, show_above_text);
   }
-  return td_api::make_object<td_api::inputMessageText>(get_formatted_text_object(text, false, -1), std::move(options),
-                                                       clear_draft);
+  return td_api::make_object<td_api::inputMessageText>(get_formatted_text_object(user_manager, text, false, -1),
+                                                       std::move(options), clear_draft);
 }
 
 }  // namespace td

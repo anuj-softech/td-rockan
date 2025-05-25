@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2024
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -13,12 +13,14 @@
 
 #include "td/utils/HashTableUtils.h"
 #include "td/utils/logging.h"
+#include "td/utils/Slice.h"
 #include "td/utils/tl_helpers.h"
 #include "td/utils/utf8.h"
 
 namespace td {
 
-HashtagHints::HashtagHints(string mode, ActorShared<> parent) : mode_(std::move(mode)), parent_(std::move(parent)) {
+HashtagHints::HashtagHints(string mode, char first_character, ActorShared<> parent)
+    : mode_(std::move(mode)), first_character_(first_character), parent_(std::move(parent)) {
 }
 
 void HashtagHints::start_up() {
@@ -43,7 +45,7 @@ void HashtagHints::remove_hashtag(string hashtag, Promise<Unit> promise) {
   if (!sync_with_db_) {
     return promise.set_value(Unit());
   }
-  if (hashtag[0] == '#') {
+  if (hashtag[0] == first_character_) {
     hashtag = hashtag.substr(1);
   }
   auto key = Hash<string>()(hashtag);
@@ -72,7 +74,8 @@ void HashtagHints::query(const string &prefix, int32 limit, Promise<vector<strin
     return;
   }
 
-  auto result = prefix.empty() ? hints_.search_empty(limit) : hints_.search(prefix, limit);
+  auto query = Slice(prefix).substr(prefix[0] == first_character_ ? 1 : 0);
+  auto result = query.empty() ? hints_.search_empty(limit) : hints_.search(query, limit);
   promise.set_value(keys_to_strings(result.second));
 }
 

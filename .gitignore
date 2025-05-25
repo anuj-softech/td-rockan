@@ -3,5 +3,6 @@
 **/.DS_Store
 **/auto/
 docs/
-tdlib/
+/tdlib/
 vcpkg/
+.clang-tidy

@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2024
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -8,12 +8,14 @@
 
 #include "td/telegram/AuthManager.h"
 #include "td/telegram/ConfigManager.h"
+#include "td/telegram/Dependencies.h"
 #include "td/telegram/DialogManager.h"
 #include "td/telegram/Global.h"
 #include "td/telegram/logevent/LogEvent.h"
 #include "td/telegram/MessagesManager.h"
 #include "td/telegram/misc.h"
 #include "td/telegram/OptionManager.h"
+#include "td/telegram/PaidReactionType.hpp"
 #include "td/telegram/ReactionManager.hpp"
 #include "td/telegram/ReactionType.hpp"
 #include "td/telegram/SavedMessagesManager.h"
@@ -476,6 +478,7 @@ void ReactionManager::init() {
 
   load_active_reactions();
   load_active_message_effects();
+  load_default_paid_reaction_type();
 
   if (td_->option_manager_->get_option_boolean("default_reaction_needs_sync")) {
     send_set_default_reaction_query();
@@ -551,7 +554,8 @@ td_api::object_ptr<td_api::availableReactions> ReactionManager::get_sorted_avail
     top_reactions = get_reaction_list(ReactionListType::Top).reaction_types_;
   }
   LOG(INFO) << "Have available reactions " << available_reactions << " to be sorted by top reactions " << top_reactions
-            << " and recent reactions " << recent_reactions;
+            << " and recent reactions " << recent_reactions
+            << " and paid reaction = " << available_reactions.paid_reactions_available_;
   if (active_reactions.allow_all_custom_ && active_reactions.allow_all_regular_) {
     for (auto &reaction_type : recent_reactions) {
       if (reaction_type.is_custom_reaction()) {
@@ -569,6 +573,11 @@ td_api::object_ptr<td_api::availableReactions> ReactionManager::get_sorted_avail
   for (const auto &reaction_type : available_reactions.reaction_types_) {
     CHECK(!reaction_type.is_empty());
     all_available_reaction_types.insert(reaction_type);
+  }
+  if (available_reactions.paid_reactions_available_ ||
+      (!available_reactions.reaction_types_.empty() && available_reactions.reaction_types_[0].is_paid_reaction())) {
+    all_available_reaction_types.insert(ReactionType::paid());
+    top_reactions.insert(top_reactions.begin(), ReactionType::paid());
   }
 
   vector<td_api::object_ptr<td_api::availableReaction>> top_reaction_objects;
@@ -664,6 +673,7 @@ void ReactionManager::add_recent_reaction(const ReactionType &reaction_type) {
   if (!reactions.empty() && reactions[0] == reaction_type) {
     return;
   }
+  CHECK(!reaction_type.is_paid_reaction());
 
   add_to_top(reactions, MAX_RECENT_REACTIONS, reaction_type);
 
@@ -874,31 +884,32 @@ void ReactionManager::on_get_available_reactions(
     reaction.title_ = std::move(available_reaction->title_);
     reaction.static_icon_ =
         td_->stickers_manager_
-            ->on_get_sticker_document(std::move(available_reaction->static_icon_), StickerFormat::Webp)
+            ->on_get_sticker_document(std::move(available_reaction->static_icon_), StickerFormat::Webp, "static_icon")
             .second;
-    reaction.appear_animation_ =
-        td_->stickers_manager_
-            ->on_get_sticker_document(std::move(available_reaction->appear_animation_), StickerFormat::Tgs)
-            .second;
-    reaction.select_animation_ =
-        td_->stickers_manager_
-            ->on_get_sticker_document(std::move(available_reaction->select_animation_), StickerFormat::Tgs)
-            .second;
-    reaction.activate_animation_ =
-        td_->stickers_manager_
-            ->on_get_sticker_document(std::move(available_reaction->activate_animation_), StickerFormat::Tgs)
-            .second;
-    reaction.effect_animation_ =
-        td_->stickers_manager_
-            ->on_get_sticker_document(std::move(available_reaction->effect_animation_), StickerFormat::Tgs)
-            .second;
-    reaction.around_animation_ =
-        td_->stickers_manager_
-            ->on_get_sticker_document(std::move(available_reaction->around_animation_), StickerFormat::Tgs)
-            .second;
-    reaction.center_animation_ =
-        td_->stickers_manager_->on_get_sticker_document(std::move(available_reaction->center_icon_), StickerFormat::Tgs)
-            .second;
+    reaction.appear_animation_ = td_->stickers_manager_
+                                     ->on_get_sticker_document(std::move(available_reaction->appear_animation_),
+                                                               StickerFormat::Tgs, "appear_animation")
+                                     .second;
+    reaction.select_animation_ = td_->stickers_manager_
+                                     ->on_get_sticker_document(std::move(available_reaction->select_animation_),
+                                                               StickerFormat::Tgs, "select_animation")
+                                     .second;
+    reaction.activate_animation_ = td_->stickers_manager_
+                                       ->on_get_sticker_document(std::move(available_reaction->activate_animation_),
+                                                                 StickerFormat::Tgs, "activate_animation")
+                                       .second;
+    reaction.effect_animation_ = td_->stickers_manager_
+                                     ->on_get_sticker_document(std::move(available_reaction->effect_animation_),
+                                                               StickerFormat::Tgs, "effect_animation")
+                                     .second;
+    reaction.around_animation_ = td_->stickers_manager_
+                                     ->on_get_sticker_document(std::move(available_reaction->around_animation_),
+                                                               StickerFormat::Tgs, "around_animation")
+                                     .second;
+    reaction.center_animation_ = td_->stickers_manager_
+                                     ->on_get_sticker_document(std::move(available_reaction->center_icon_),
+                                                               StickerFormat::Tgs, "center_animation")
+                                     .second;
 
     if (!reaction.is_valid()) {
       LOG(ERROR) << "Receive invalid " << reaction.reaction_type_;
@@ -963,8 +974,11 @@ void ReactionManager::set_default_reaction(ReactionType reaction_type, Promise<U
   if (reaction_type.is_empty()) {
     return promise.set_error(Status::Error(400, "Default reaction must be non-empty"));
   }
+  if (reaction_type.is_paid_reaction()) {
+    return promise.set_error(Status::Error(400, "Can't set paid reaction as default"));
+  }
   if (!reaction_type.is_custom_reaction() && !is_active_reaction(reaction_type)) {
-    return promise.set_error(Status::Error(400, "Can't set incative reaction as default"));
+    return promise.set_error(Status::Error(400, "Can't set inactive reaction as default"));
   }
 
   if (td_->option_manager_->get_option_string("default_reaction", "-") != reaction_type.get_string()) {
@@ -997,7 +1011,7 @@ void ReactionManager::load_all_saved_reaction_tags_from_database() {
       all_tags_ = {};
     }
   }
-  reget_saved_messages_tags(SavedMessagesTopicId(), Auto());
+  reload_saved_messages_tags(SavedMessagesTopicId(), Auto());
 }
 
 void ReactionManager::load_saved_reaction_tags_from_database(SavedMessagesTopicId saved_messages_topic_id,
@@ -1017,7 +1031,7 @@ void ReactionManager::load_saved_reaction_tags_from_database(SavedMessagesTopicI
   }
 
   send_update_saved_messages_tags(saved_messages_topic_id, tags, true);
-  reget_saved_messages_tags(saved_messages_topic_id, Auto());
+  reload_saved_messages_tags(saved_messages_topic_id, Auto());
 }
 
 ReactionManager::SavedReactionTags *ReactionManager::get_saved_reaction_tags(
@@ -1043,11 +1057,11 @@ void ReactionManager::get_saved_messages_tags(SavedMessagesTopicId saved_message
   if (tags->is_inited_) {
     return promise.set_value(tags->get_saved_messages_tags_object());
   }
-  reget_saved_messages_tags(saved_messages_topic_id, std::move(promise));
+  reload_saved_messages_tags(saved_messages_topic_id, std::move(promise));
 }
 
-void ReactionManager::reget_saved_messages_tags(SavedMessagesTopicId saved_messages_topic_id,
-                                                Promise<td_api::object_ptr<td_api::savedMessagesTags>> &&promise) {
+void ReactionManager::reload_saved_messages_tags(SavedMessagesTopicId saved_messages_topic_id,
+                                                 Promise<td_api::object_ptr<td_api::savedMessagesTags>> &&promise) {
   auto &promises = saved_messages_topic_id == SavedMessagesTopicId()
                        ? pending_get_all_saved_reaction_tags_queries_
                        : pending_get_topic_saved_reaction_tags_queries_[saved_messages_topic_id];
@@ -1152,7 +1166,7 @@ void ReactionManager::send_update_saved_messages_tags(SavedMessagesTopicId saved
 }
 
 void ReactionManager::on_update_saved_reaction_tags(Promise<Unit> &&promise) {
-  reget_saved_messages_tags(
+  reload_saved_messages_tags(
       SavedMessagesTopicId(),
       PromiseCreator::lambda(
           [promise = std::move(promise)](Result<td_api::object_ptr<td_api::savedMessagesTags>> result) mutable {
@@ -1170,8 +1184,8 @@ void ReactionManager::update_saved_messages_tags(SavedMessagesTopicId saved_mess
   if (all_tags->update_saved_messages_tags(old_tags, new_tags)) {
     send_update_saved_messages_tags(SavedMessagesTopicId(), all_tags);
   }
-  if (saved_messages_topic_id != SavedMessagesTopicId()) {
-    auto tags = get_saved_reaction_tags(saved_messages_topic_id);
+  if (saved_messages_topic_id != SavedMessagesTopicId() && saved_messages_topic_id.get_input_peer(td_) != nullptr) {
+    auto *tags = get_saved_reaction_tags(saved_messages_topic_id);
     if (tags->update_saved_messages_tags(old_tags, new_tags)) {
       send_update_saved_messages_tags(saved_messages_topic_id, tags);
     }
@@ -1181,6 +1195,9 @@ void ReactionManager::update_saved_messages_tags(SavedMessagesTopicId saved_mess
 void ReactionManager::set_saved_messages_tag_title(ReactionType reaction_type, string title, Promise<Unit> &&promise) {
   if (reaction_type.is_empty()) {
     return promise.set_error(Status::Error(400, "Reaction type must be non-empty"));
+  }
+  if (reaction_type.is_paid_reaction()) {
+    return promise.set_error(Status::Error(400, "Invalid reaction specified"));
   }
   title = clean_name(title, MAX_TAG_TITLE_LENGTH);
 
@@ -1210,12 +1227,12 @@ td_api::object_ptr<td_api::messageEffect> ReactionManager::get_message_effect_ob
         td_->stickers_manager_->get_sticker_object(effect.effect_sticker_id_),
         td_->stickers_manager_->get_sticker_object(effect.effect_animation_id_));
   }();
-  return td_api::make_object<td_api::messageEffect>(effect.id_,
+  return td_api::make_object<td_api::messageEffect>(effect.id_.get(),
                                                     td_->stickers_manager_->get_sticker_object(effect.static_icon_id_),
                                                     effect.emoji_, effect.is_premium_, std::move(type));
 }
 
-td_api::object_ptr<td_api::messageEffect> ReactionManager::get_message_effect_object(int64 effect_id) const {
+td_api::object_ptr<td_api::messageEffect> ReactionManager::get_message_effect_object(MessageEffectId effect_id) const {
   for (auto &effect : message_effects_.effects_) {
     if (effect.id_ == effect_id) {
       return get_message_effect_object(effect);
@@ -1226,9 +1243,12 @@ td_api::object_ptr<td_api::messageEffect> ReactionManager::get_message_effect_ob
 
 td_api::object_ptr<td_api::updateAvailableMessageEffects> ReactionManager::get_update_available_message_effects_object()
     const {
+  auto get_raw_effect_ids = [](const vector<MessageEffectId> &message_effect_ids) {
+    return transform(message_effect_ids, [](MessageEffectId effect_id) { return effect_id.get(); });
+  };
   return td_api::make_object<td_api::updateAvailableMessageEffects>(
-      vector<int64>(active_message_effects_.reaction_effects_),
-      vector<int64>(active_message_effects_.sticker_effects_));
+      get_raw_effect_ids(active_message_effects_.reaction_effects_),
+      get_raw_effect_ids(active_message_effects_.sticker_effects_));
 }
 
 void ReactionManager::reload_message_effects() {
@@ -1310,7 +1330,8 @@ void ReactionManager::on_get_message_effects(
       auto effects = telegram_api::move_object_as<telegram_api::messages_availableEffects>(message_effects);
       FlatHashMap<int64, FileId> stickers;
       for (auto &document : effects->documents_) {
-        auto sticker = td_->stickers_manager_->on_get_sticker_document(std::move(document), StickerFormat::Unknown);
+        auto sticker = td_->stickers_manager_->on_get_sticker_document(std::move(document), StickerFormat::Unknown,
+                                                                       "on_get_message_effects");
         if (sticker.first != 0 && sticker.second.is_valid()) {
           stickers.emplace(sticker.first, sticker.second);
         } else {
@@ -1322,8 +1343,8 @@ void ReactionManager::on_get_message_effects(
       bool have_invalid_order = false;
       for (const auto &available_effect : effects->effects_) {
         Effect effect;
-        effect.id_ = available_effect->id_;
-        effect.emoji_ = std::move(available_effect->emoticon_);
+        effect.id_ = MessageEffectId(available_effect->id_);
+        effect.emoji_ = available_effect->emoticon_;
         effect.is_premium_ = available_effect->premium_required_;
         if (available_effect->static_icon_id_ != 0) {
           auto it = stickers.find(available_effect->static_icon_id_);
@@ -1439,7 +1460,7 @@ void ReactionManager::update_active_message_effects() {
   send_closure(G()->td(), &Td::send_update, get_update_available_message_effects_object());
 }
 
-void ReactionManager::get_message_effect(int64 effect_id,
+void ReactionManager::get_message_effect(MessageEffectId effect_id,
                                          Promise<td_api::object_ptr<td_api::messageEffect>> &&promise) {
   load_message_effects();
   if (message_effects_.effects_.empty() && message_effects_.are_being_reloaded_) {
@@ -1447,6 +1468,54 @@ void ReactionManager::get_message_effect(int64 effect_id,
     return;
   }
   promise.set_value(get_message_effect_object(effect_id));
+}
+
+void ReactionManager::send_update_default_paid_reaction_type() const {
+  send_closure(G()->td(), &Td::send_update, default_paid_reaction_type_.get_update_default_paid_reaction_type(td_));
+}
+
+void ReactionManager::on_update_default_paid_reaction_type(PaidReactionType type) {
+  if (type.is_valid() && type != default_paid_reaction_type_) {
+    default_paid_reaction_type_ = type;
+    save_default_paid_reaction_type();
+    send_update_default_paid_reaction_type();
+  }
+}
+
+void ReactionManager::load_default_paid_reaction_type() {
+  string type = G()->td_db()->get_binlog_pmc()->get("default_paid_reaction_type");
+  if (!type.empty()) {
+    auto status = log_event_parse(default_paid_reaction_type_, type);
+    if (status.is_error()) {
+      LOG(ERROR) << "Can't load default paid reaction type: " << status;
+      default_paid_reaction_type_ = {};
+      save_default_paid_reaction_type();
+    } else {
+      Dependencies dependencies;
+      default_paid_reaction_type_.add_dependencies(dependencies);
+      if (!default_paid_reaction_type_.is_valid() ||
+          !dependencies.resolve_force(td_, "load_default_paid_reaction_type")) {
+        default_paid_reaction_type_ = {};
+        save_default_paid_reaction_type();
+      }
+    }
+  } else if (td_->option_manager_->have_option("is_paid_reaction_anonymous")) {
+    auto is_anonymous = td_->option_manager_->get_option_boolean("is_paid_reaction_anonymous");
+    default_paid_reaction_type_ = PaidReactionType::legacy(is_anonymous);
+    save_default_paid_reaction_type();
+    td_->option_manager_->set_option_empty("is_paid_reaction_anonymous");
+  }
+  send_update_default_paid_reaction_type();
+}
+
+void ReactionManager::save_default_paid_reaction_type() const {
+  LOG(INFO) << "Save " << default_paid_reaction_type_;
+  G()->td_db()->get_binlog_pmc()->set("default_paid_reaction_type",
+                                      log_event_store(default_paid_reaction_type_).as_slice().str());
+}
+
+PaidReactionType ReactionManager::get_default_paid_reaction_type() const {
+  return default_paid_reaction_type_;
 }
 
 void ReactionManager::get_current_state(vector<td_api::object_ptr<td_api::Update>> &updates) const {
@@ -1466,6 +1535,7 @@ void ReactionManager::get_current_state(vector<td_api::object_ptr<td_api::Update
   if (!active_message_effects_.is_empty()) {
     updates.push_back(get_update_available_message_effects_object());
   }
+  updates.push_back(default_paid_reaction_type_.get_update_default_paid_reaction_type(td_));
 }
 
 }  // namespace td
