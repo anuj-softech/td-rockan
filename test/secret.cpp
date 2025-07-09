@@ -238,14 +238,12 @@ class messages_dhConfig final {
   }
 
   void store(TlStorerCalcLength &s) const {
-    (void)sizeof(s);
     TlStoreBinary::store(g_, s);
     TlStoreString::store(p_, s);
     TlStoreBinary::store(version_, s);
     TlStoreString::store(random_, s);
   }
   void store(TlStorerUnsafe &s) const {
-    (void)sizeof(s);
     TlStoreBinary::store(g_, s);
     TlStoreString::store(p_, s);
     TlStoreBinary::store(version_, s);
@@ -283,7 +281,6 @@ class encryptedChat final {
   }
 
   void store(TlStorerCalcLength &s) const {
-    (void)sizeof(s);
     TlStoreBinary::store(id_, s);
     TlStoreBinary::store(access_hash_, s);
     TlStoreBinary::store(date_, s);
@@ -294,7 +291,6 @@ class encryptedChat final {
   }
 
   void store(TlStorerUnsafe &s) const {
-    (void)sizeof(s);
     TlStoreBinary::store(id_, s);
     TlStoreBinary::store(access_hash_, s);
     TlStoreBinary::store(date_, s);
@@ -321,12 +317,10 @@ class messages_sentEncryptedMessage final {
   }
 
   void store(TlStorerCalcLength &s) const {
-    (void)sizeof(s);
     TlStoreBinary::store(date_, s);
   }
 
   void store(TlStorerUnsafe &s) const {
-    (void)sizeof(s);
     TlStoreBinary::store(date_, s);
   }
 };
@@ -639,7 +633,7 @@ class Master final : public Actor {
     int32 binlog_generation_ = 0;
     void sync_binlog(int32 binlog_generation, Promise<> promise) {
       if (binlog_generation != binlog_generation_) {
-        return promise.set_error(Status::Error("Binlog generation mismatch"));
+        return promise.set_error("Binlog generation mismatch");
       }
       binlog_->force_sync(std::move(promise), "sync_binlog");
     }
@@ -998,10 +992,10 @@ void FakeSecretChatContext::on_delete_messages(std::vector<int64> random_id, Pro
   promise.set_value(Unit());
 }
 void FakeSecretChatContext::on_flush_history(bool, MessageId, Promise<> promise) {
-  promise.set_error(Status::Error("Unsupported"));
+  promise.set_error("Unsupported");
 }
 void FakeSecretChatContext::on_read_message(int64, Promise<> promise) {
-  promise.set_error(Status::Error("Unsupported"));
+  promise.set_error("Unsupported");
 }
 
 TEST(Secret, go) {

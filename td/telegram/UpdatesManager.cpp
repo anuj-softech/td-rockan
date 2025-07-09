@@ -853,7 +853,7 @@ bool UpdatesManager::is_acceptable_message_media(
       /*
       // the users and chats are always min, so no need to check
       auto message_media_poll = static_cast<const telegram_api::messageMediaPoll *>(media_ptr.get());
-      for (auto recent_voter : message_media_poll->results_->recent_voters_) {
+      for (const auto &recent_voter : message_media_poll->results_->recent_voters_) {
         if (!is_acceptable_peer(recent_voter)) {
           return false;
         }
@@ -887,6 +887,18 @@ bool UpdatesManager::is_acceptable_message_media(
       }
       */
       return true;
+    case telegram_api::messageMediaToDo::ID: {
+      /*
+      // the users are always min, so no need to check
+      auto message_media_to_do = static_cast<const telegram_api::messageMediaToDo *>(media_ptr.get());
+      for (const auto &completion : message_media_to_do->completions_) {
+        if (!is_acceptable_user(UserId(completion->completed_by_))) {
+          return false;
+        }
+      }
+      */
+      return true;
+    }
     default:
       return true;
   }
@@ -994,6 +1006,8 @@ bool UpdatesManager::is_acceptable_message(const telegram_api::Message *message_
         case telegram_api::messageActionStarGiftUnique::ID:
         case telegram_api::messageActionPaidMessagesRefunded::ID:
         case telegram_api::messageActionPaidMessagesPrice::ID:
+        case telegram_api::messageActionTodoCompletions::ID:
+        case telegram_api::messageActionTodoAppendTasks::ID:
           break;
         case telegram_api::messageActionChatCreate::ID: {
           auto chat_create = static_cast<const telegram_api::messageActionChatCreate *>(action);
@@ -1914,9 +1928,11 @@ void UpdatesManager::process_get_difference_updates(
     */
   }
 
+  MessageId::is_message_id_order_ascending(new_messages);  // ignore errors
+
   for (auto &message : new_messages) {
     // channel messages must not be received in this vector
-    td_->messages_manager_->on_get_message(std::move(message), true, false, false, "get difference");
+    td_->messages_manager_->on_get_message(DialogId(), std::move(message), true, false, false, "get difference");
     CHECK(!running_get_difference_);
   }
 
@@ -3684,15 +3700,15 @@ void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateReadChannelDisc
   auto last_read_inbox_message_id = MessageId(ServerMessageId(update->read_max_id_));
   if (!last_read_inbox_message_id.is_valid()) {
     LOG(ERROR) << "Receive " << to_string(update);
-    return;
-  }
-  td_->messages_manager_->on_update_read_message_comments(DialogId(ChannelId(update->channel_id_)),
-                                                          MessageId(ServerMessageId(update->top_msg_id_)), MessageId(),
-                                                          last_read_inbox_message_id, MessageId(), -1);
-  if (update->broadcast_id_ != 0) {
-    td_->messages_manager_->on_update_read_message_comments(DialogId(ChannelId(update->broadcast_id_)),
-                                                            MessageId(ServerMessageId(update->broadcast_post_)),
+  } else {
+    td_->messages_manager_->on_update_read_message_comments(DialogId(ChannelId(update->channel_id_)),
+                                                            MessageId(ServerMessageId(update->top_msg_id_)),
                                                             MessageId(), last_read_inbox_message_id, MessageId(), -1);
+    if (update->broadcast_id_ != 0) {
+      td_->messages_manager_->on_update_read_message_comments(DialogId(ChannelId(update->broadcast_id_)),
+                                                              MessageId(ServerMessageId(update->broadcast_post_)),
+                                                              MessageId(), last_read_inbox_message_id, MessageId(), -1);
+    }
   }
   promise.set_value(Unit());
 }
@@ -3702,11 +3718,43 @@ void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateReadChannelDisc
   auto last_read_outbox_message_id = MessageId(ServerMessageId(update->read_max_id_));
   if (!last_read_outbox_message_id.is_valid()) {
     LOG(ERROR) << "Receive " << to_string(update);
-    return;
+  } else {
+    td_->messages_manager_->on_update_read_message_comments(DialogId(ChannelId(update->channel_id_)),
+                                                            MessageId(ServerMessageId(update->top_msg_id_)),
+                                                            MessageId(), MessageId(), last_read_outbox_message_id, -1);
   }
-  td_->messages_manager_->on_update_read_message_comments(DialogId(ChannelId(update->channel_id_)),
-                                                          MessageId(ServerMessageId(update->top_msg_id_)), MessageId(),
-                                                          MessageId(), last_read_outbox_message_id, -1);
+  promise.set_value(Unit());
+}
+
+void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateReadMonoForumInbox> update, Promise<Unit> &&promise) {
+  auto read_inbox_max_message_id = MessageId(ServerMessageId(update->read_max_id_));
+  if (!read_inbox_max_message_id.is_valid()) {
+    LOG(ERROR) << "Receive " << to_string(update);
+  } else {
+    td_->saved_messages_manager_->on_update_read_monoforum_inbox(DialogId(ChannelId(update->channel_id_)),
+                                                                 SavedMessagesTopicId(DialogId(update->saved_peer_id_)),
+                                                                 read_inbox_max_message_id);
+  }
+  promise.set_value(Unit());
+}
+
+void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateReadMonoForumOutbox> update, Promise<Unit> &&promise) {
+  auto read_outbox_max_message_id = MessageId(ServerMessageId(update->read_max_id_));
+  if (!read_outbox_max_message_id.is_valid()) {
+    LOG(ERROR) << "Receive " << to_string(update);
+  } else {
+    td_->saved_messages_manager_->on_update_read_monoforum_outbox(
+        DialogId(ChannelId(update->channel_id_)), SavedMessagesTopicId(DialogId(update->saved_peer_id_)),
+        read_outbox_max_message_id);
+  }
+  promise.set_value(Unit());
+}
+
+void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateMonoForumNoPaidException> update,
+                               Promise<Unit> &&promise) {
+  td_->saved_messages_manager_->on_update_monoforum_nopaid_messages_exception(
+      DialogId(ChannelId(update->channel_id_)), SavedMessagesTopicId(DialogId(update->saved_peer_id_)),
+      update->exception_);
   promise.set_value(Unit());
 }
 
@@ -4169,8 +4217,14 @@ void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateChatDefaultBann
 }
 
 void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateDraftMessage> update, Promise<Unit> &&promise) {
-  td_->messages_manager_->on_update_dialog_draft_message(
-      DialogId(update->peer_), MessageId(ServerMessageId(update->top_msg_id_)), std::move(update->draft_));
+  if (update->saved_peer_id_ != nullptr) {
+    LOG_IF(ERROR, update->top_msg_id_ != 0) << "Have both top_msg_id and saved_peer_id";
+    td_->saved_messages_manager_->on_update_topic_draft_message(
+        DialogId(update->peer_), SavedMessagesTopicId(DialogId(update->saved_peer_id_)), std::move(update->draft_));
+  } else {
+    td_->messages_manager_->on_update_dialog_draft_message(
+        DialogId(update->peer_), MessageId(ServerMessageId(update->top_msg_id_)), std::move(update->draft_));
+  }
   promise.set_value(Unit());
 }
 
@@ -4196,7 +4250,12 @@ void UpdatesManager::on_update(tl_object_ptr<telegram_api::updatePinnedSavedDial
 }
 
 void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateDialogUnreadMark> update, Promise<Unit> &&promise) {
-  td_->messages_manager_->on_update_dialog_is_marked_as_unread(DialogId(update->peer_), update->unread_);
+  if (update->saved_peer_id_ != nullptr) {
+    td_->saved_messages_manager_->on_update_topic_is_marked_as_unread(
+        DialogId(update->peer_), SavedMessagesTopicId(DialogId(update->saved_peer_id_)), update->unread_);
+  } else {
+    td_->messages_manager_->on_update_dialog_is_marked_as_unread(DialogId(update->peer_), update->unread_);
+  }
   promise.set_value(Unit());
 }
 
@@ -4425,9 +4484,9 @@ void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateGroupCallChainB
 
 void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateGroupCall> update, Promise<Unit> &&promise) {
   DialogId dialog_id(ChatId(update->chat_id_));
-  if (dialog_id != DialogId() && !td_->dialog_manager_->have_dialog_force(dialog_id, "updateGroupCall")) {
+  if (dialog_id != DialogId() && !td_->dialog_manager_->have_dialog_force(dialog_id, "updateGroupCall chat")) {
     dialog_id = DialogId(ChannelId(update->chat_id_));
-    if (!td_->dialog_manager_->have_dialog_force(dialog_id, "updateGroupCall")) {
+    if (!td_->dialog_manager_->have_dialog_force(dialog_id, "updateGroupCall channel")) {
       dialog_id = DialogId();
     }
   }
@@ -4484,7 +4543,8 @@ void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateMessagePollVote
 }
 
 void UpdatesManager::on_update(tl_object_ptr<telegram_api::updateNewScheduledMessage> update, Promise<Unit> &&promise) {
-  td_->messages_manager_->on_get_message(std::move(update->message_), true, false, true, "updateNewScheduledMessage");
+  td_->messages_manager_->on_get_message(DialogId(), std::move(update->message_), true, false, true,
+                                         "updateNewScheduledMessage");
   promise.set_value(Unit());
 }
 

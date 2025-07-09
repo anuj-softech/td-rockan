@@ -148,7 +148,7 @@ StringBuilder &operator<<(StringBuilder &string_builder, const AdministratorRigh
     string_builder << "(promote)";
   }
   if (status.can_manage_calls()) {
-    string_builder << "(voice chat)";
+    string_builder << "(video chat)";
   }
   if (status.can_post_stories()) {
     string_builder << "(post story)";
@@ -288,7 +288,7 @@ StringBuilder &operator<<(StringBuilder &string_builder, const RestrictedRights 
     string_builder << "(games)";
   }
   if (!status.can_send_polls()) {
-    string_builder << "(polls)";
+    string_builder << "(polls+checklists)";
   }
   if (!status.can_use_inline_bots()) {
     string_builder << "(inline bots)";
