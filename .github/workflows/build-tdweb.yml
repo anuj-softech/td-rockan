@@ -29,7 +29,23 @@ jobs:
     - name: 🛠️ Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y build-essential cmake git python3 curl wget tar sed
+         sudo apt-get install -y \
+            autoconf \
+            automake \
+            build-essential \
+            clang \
+            cmake \
+            git \
+            gperf \
+            libssl-dev \
+            perl \
+            php \
+            pkg-config \
+            unzip \
+            wget \
+            zlib1g-dev \
+            sed \
+            curl
 
     - name: 📦 Set up Emscripten SDK
       run: |
