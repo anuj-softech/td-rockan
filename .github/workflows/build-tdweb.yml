@@ -1,0 +1,49 @@
+name: Manual TDWeb Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-tdweb:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout your forked TDLib
+      uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential cmake git python3 curl wget tar sed
+
+    - name: Set up emsdk
+      run: |
+        git clone https://github.com/emscripten-core/emsdk.git
+        cd emsdk
+        git pull
+        ./emsdk install 3.1.1
+        ./emsdk activate 3.1.1
+        echo "source $(pwd)/emsdk_env.sh" >> $GITHUB_ENV
+        echo "EMSDK_PATH=$(pwd)" >> $GITHUB_ENV
+
+    - name: Source emsdk_env.sh
+      run: |
+        source $EMSDK_PATH/emsdk_env.sh
+        echo "Emscripten version:"
+        emcc -v
+
+    - name: Build TDLib for Web
+      working-directory: ./example/web
+      run: |
+        source $EMSDK_PATH/emsdk_env.sh
+        ./build-openssl.sh
+        ./build-tdlib.sh
+        ./copy-tdlib.sh
+        ./build-tdweb.sh
+
+    - name: Archive the npm tdweb package
+      uses: actions/upload-artifact@v3
+      with:
+        name: tdweb-npm-package
+        path: example/web/tdweb
+
