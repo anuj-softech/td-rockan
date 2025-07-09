@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 
-project(TDLib VERSION 1.8.49 LANGUAGES CXX C)
+project(TDLib VERSION 1.8.51 LANGUAGES CXX C)
 
 if (NOT DEFINED CMAKE_MODULE_PATH)
   set(CMAKE_MODULE_PATH "")
@@ -28,7 +28,7 @@ prevent_in_source_build()
 option(TD_INSTALL_STATIC_LIBRARIES "Enable installation of static libraries." ON)
 option(TD_INSTALL_SHARED_LIBRARIES "Enable installation of shared libraries." ON)
 option(TD_ENABLE_JNI "Use \"ON\" to enable JNI-compatible TDLib API.")
-option(TD_ENABLE_DOTNET "Use \"ON\" to enable generation of C++/CLI or C++/CX TDLib API bindings.")
+option(TD_ENABLE_DOTNET "Use \"ON\" or \"CX\" to enable generation of C++/CLI or C++/CX TDLib API bindings respectively.")
 if (NOT CMAKE_CROSSCOMPILING)
   option(TD_GENERATE_SOURCE_FILES "Use \"ON\" to just generate TDLib source files.")
 endif()
@@ -164,14 +164,7 @@ if (NOT CMAKE_CROSSCOMPILING)
   endif()
   add_custom_target(prepare_cross_compiling ${TD_ALWAYS_GENERATE_SOURCE} DEPENDS tl_generate_mtproto tl_generate_common tdmime_auto tl_generate_json)
   if (TD_ENABLE_DOTNET)
-    add_custom_target(remove_cpp_documentation
-      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-      COMMAND remove_documentation ${TL_TD_API_AUTO_SOURCE} td/telegram/Client.h td/telegram/Log.h td/tl/TlObject.h
-      COMMENT "Remove C++ documentation from sources"
-      DEPENDS remove_documentation tl_generate_mtproto tl_generate_common generate_dotnet_api ${TL_TD_API_AUTO_SOURCE} td/telegram/Client.h td/telegram/Log.h td/tl/TlObject.h
-    )
-
-    add_dependencies(prepare_cross_compiling generate_dotnet_api remove_cpp_documentation)
+    add_dependencies(prepare_cross_compiling generate_dotnet_api)
   endif()
 endif()
 
@@ -513,6 +506,7 @@ set(TDLIB_SOURCE_PART1
   td/telegram/MessagesManager.cpp
   td/telegram/MessageSource.cpp
   td/telegram/MessageThreadDb.cpp
+  td/telegram/MessageTopic.cpp
   td/telegram/MessageTtl.cpp
   td/telegram/MessageViewer.cpp
   td/telegram/misc.cpp
@@ -641,6 +635,9 @@ set(TDLIB_SOURCE_PART2
   td/telegram/ThemeManager.cpp
   td/telegram/ThemeSettings.cpp
   td/telegram/TimeZoneManager.cpp
+  td/telegram/ToDoCompletion.cpp
+  td/telegram/ToDoItem.cpp
+  td/telegram/ToDoList.cpp
   td/telegram/TopDialogCategory.cpp
   td/telegram/TopDialogManager.cpp
   td/telegram/TranscriptionInfo.cpp
@@ -865,6 +862,7 @@ set(TDLIB_SOURCE_PART2
   td/telegram/MessageSource.h
   td/telegram/MessageThreadDb.h
   td/telegram/MessageThreadInfo.h
+  td/telegram/MessageTopic.h
   td/telegram/MessageTtl.h
   td/telegram/MessageViewer.h
   td/telegram/MinChannel.h
@@ -1025,6 +1023,9 @@ set(TDLIB_SOURCE_PART2
   td/telegram/ThemeManager.h
   td/telegram/ThemeSettings.h
   td/telegram/TimeZoneManager.h
+  td/telegram/ToDoCompletion.h
+  td/telegram/ToDoItem.h
+  td/telegram/ToDoList.h
   td/telegram/TopDialogCategory.h
   td/telegram/TopDialogManager.h
   td/telegram/TranscriptionInfo.h
@@ -1143,6 +1144,9 @@ set(TDLIB_SOURCE_PART2
   td/telegram/SuggestedAction.hpp
   td/telegram/TermsOfService.hpp
   td/telegram/ThemeSettings.hpp
+  td/telegram/ToDoCompletion.hpp
+  td/telegram/ToDoItem.hpp
+  td/telegram/ToDoList.hpp
   td/telegram/TranscriptionInfo.hpp
   td/telegram/VideoNotesManager.hpp
   td/telegram/VideosManager.hpp
@@ -1253,9 +1257,6 @@ if (NOT CMAKE_CROSSCOMPILING)
   if (TD_ENABLE_JNI)
     add_dependencies(tdcore td_generate_java_api)
   endif()
-  if (TD_ENABLE_DOTNET)
-    add_dependencies(tdcore remove_cpp_documentation)
-  endif()
 endif()
 
 add_library(tdclient STATIC td/telegram/Client.cpp td/telegram/Client.h td/telegram/Log.cpp td/telegram/Log.h)
@@ -1265,7 +1266,6 @@ target_link_libraries(tdclient PUBLIC tdapi PRIVATE tdcore)
 if (TD_ENABLE_DOTNET)
   add_library(tddotnet SHARED
     td/telegram/ClientDotNet.cpp
-    td/telegram/LogDotNet.cpp
     ${TL_DOTNET_SCHEME_SOURCE}
   )
   set_target_properties(tddotnet PROPERTIES OUTPUT_NAME Telegram.Td)
@@ -1275,7 +1275,6 @@ if (TD_ENABLE_DOTNET)
     add_dependencies(tddotnet generate_dotnet_api)
   endif()
 
-  target_compile_options(tddotnet PRIVATE "/doc")
   if (CMAKE_SYSTEM_NAME STREQUAL "WindowsStore")
     set_target_properties(tddotnet PROPERTIES VS_WINRT_COMPONENT "true")
     target_compile_options(tddotnet PUBLIC "/ZW")
@@ -1283,6 +1282,11 @@ if (TD_ENABLE_DOTNET)
     set_target_properties(tddotnet PROPERTIES COMPILE_FLAGS "/GR /clr")
     target_compile_options(tddotnet PUBLIC "/EHa")
   endif()
+
+  add_custom_command(TARGET tddotnet POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${TL_TD_AUTO_INCLUDE_DIR}/td/telegram/Telegram.Td.xml
+        $<TARGET_FILE_DIR:tddotnet>)
 endif()
 
 # tdc - TDLib interface in pure C
@@ -1298,9 +1302,6 @@ target_include_directories(tdjson_private PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRE
 target_link_libraries(tdjson_private PUBLIC tdclient tdutils)
 if (NOT CMAKE_CROSSCOMPILING)
   add_dependencies(tdjson_private tl_generate_common tl_generate_json)
-  if (TD_ENABLE_DOTNET)
-    add_dependencies(tdjson_private remove_cpp_documentation)
-  endif()
 endif()
 
 set(TD_JSON_HEADERS td/telegram/td_json_client.h td/telegram/td_log.h)
