@@ -8,31 +8,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout your forked TDLib
-      uses: actions/checkout@v3
+    - name: 📥 Checkout your forked TDLib
+      uses: actions/checkout@v4
 
-    - name: Install dependencies
+    - name: 🛠️ Install dependencies
       run: |
         sudo apt update
         sudo apt install -y build-essential cmake git python3 curl wget tar sed
 
-    - name: Set up emsdk
+    - name: 📦 Set up Emscripten SDK
       run: |
         git clone https://github.com/emscripten-core/emsdk.git
         cd emsdk
-        git pull
         ./emsdk install 3.1.1
         ./emsdk activate 3.1.1
-        echo "source $(pwd)/emsdk_env.sh" >> $GITHUB_ENV
         echo "EMSDK_PATH=$(pwd)" >> $GITHUB_ENV
 
-    - name: Source emsdk_env.sh
+    - name: 🧠 Source emsdk_env.sh and show version
       run: |
         source $EMSDK_PATH/emsdk_env.sh
-        echo "Emscripten version:"
         emcc -v
 
-    - name: Build TDLib for Web
+    - name: 🏗️ Build TDLib for Web
       working-directory: ./example/web
       run: |
         source $EMSDK_PATH/emsdk_env.sh
@@ -41,9 +38,10 @@ jobs:
         ./copy-tdlib.sh
         ./build-tdweb.sh
 
-    - name: Archive the npm tdweb package
-      uses: actions/upload-artifact@v3
+    - name: 📦 Archive the npm tdweb package
+      uses: actions/upload-artifact@v4
       with:
         name: tdweb-npm-package
-        path: example/web/tdweb
-
+        path: |
+          example/web/tdweb
+        if-no-files-found: error
