@@ -8,10 +8,12 @@
 
 #include "td/telegram/BackgroundInfo.h"
 #include "td/telegram/ChannelId.h"
+#include "td/telegram/ChatTheme.h"
 #include "td/telegram/DialogId.h"
 #include "td/telegram/EncryptedFile.h"
 #include "td/telegram/files/FileId.h"
 #include "td/telegram/files/FileUploadId.h"
+#include "td/telegram/ForumTopicId.h"
 #include "td/telegram/InputGroupCallId.h"
 #include "td/telegram/logevent/LogEvent.h"
 #include "td/telegram/MessageContentType.h"
@@ -143,9 +145,6 @@ telegram_api::object_ptr<telegram_api::InputMedia> get_message_content_input_med
                                                                                    const string &emoji, bool force,
                                                                                    int32 media_pos = -1);
 
-telegram_api::object_ptr<telegram_api::InputMedia> get_message_content_fake_input_media(
-    Td *td, telegram_api::object_ptr<telegram_api::InputFile> input_file, FileId file_id);
-
 telegram_api::object_ptr<telegram_api::InputMedia> get_message_content_input_media_web_page(
     const Td *td, const MessageContent *content);
 
@@ -170,7 +169,7 @@ MessageId get_message_content_pinned_message_id(const MessageContent *content);
 
 BackgroundInfo get_message_content_my_background_info(const MessageContent *content, bool is_outgoing);
 
-string get_message_content_theme_name(const MessageContent *content);
+ChatTheme get_message_content_chat_theme(const MessageContent *content);
 
 MessageFullId get_message_content_replied_message_id(DialogId dialog_id, const MessageContent *content);
 
@@ -300,8 +299,6 @@ const Photo *get_message_content_cover(const MessageContent *content);
 
 vector<const Photo *> get_message_content_need_to_upload_covers(Td *td, const MessageContent *content);
 
-const Photo *get_message_content_photo(const MessageContent *content);
-
 FileId get_message_content_any_file_id(const MessageContent *content);
 
 vector<FileId> get_message_content_any_file_ids(const MessageContent *content);
@@ -351,7 +348,7 @@ void update_failed_to_send_message_content(Td *td, unique_ptr<MessageContent> &c
 void add_message_content_dependencies(Dependencies &dependencies, const MessageContent *message_content, bool is_bot);
 
 void update_forum_topic_info_by_service_message_content(Td *td, const MessageContent *content, DialogId dialog_id,
-                                                        MessageId top_thread_message_id);
+                                                        ForumTopicId forum_topic_id);
 
 void on_sent_message_content(Td *td, const MessageContent *content);
 

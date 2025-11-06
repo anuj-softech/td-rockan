@@ -15,6 +15,7 @@
 #include "td/telegram/DialogId.h"
 #include "td/telegram/DialogManager.h"
 #include "td/telegram/DraftMessage.h"
+#include "td/telegram/ForumTopicId.h"
 #include "td/telegram/Global.h"
 #include "td/telegram/MessageFullId.h"
 #include "td/telegram/MessageQueryManager.h"
@@ -563,6 +564,10 @@ SavedMessagesTopicId SavedMessagesManager::get_topic_id(DialogId dialog_id, int6
   }
   auto saved_messages_topic_id = SavedMessagesTopicId(DialogId(topic_id));
   if (td_->auth_manager_->is_bot() && saved_messages_topic_id.is_valid_in(td_, dialog_id).is_ok()) {
+    return saved_messages_topic_id;
+  }
+  if (dialog_id == DialogId() &&
+      saved_messages_topic_id.is_valid_in(td_, td_->dialog_manager_->get_my_dialog_id()).is_ok()) {
     return saved_messages_topic_id;
   }
   if (get_topic(dialog_id, saved_messages_topic_id) == nullptr) {
@@ -1428,6 +1433,7 @@ SavedMessagesManager::TopicList *SavedMessagesManager::add_topic_list(DialogId d
   if (check_monoforum_dialog_id(dialog_id).is_error()) {
     return nullptr;
   }
+  CHECK(dialog_id.is_valid());
   auto &topic_list = monoforum_topic_lists_[dialog_id];
   if (topic_list == nullptr) {
     topic_list = make_unique<TopicList>();
@@ -2178,17 +2184,20 @@ void SavedMessagesManager::on_get_topic_history(DialogId dialog_id, uint32 gener
   if (topic_list->generation_ != generation) {
     return promise.set_error(400, "Topic was deleted");
   }
-  auto *topic = add_topic(topic_list, saved_messages_topic_id, false);
 
   if (r_info.is_error()) {
     return promise.set_error(r_info.move_as_error());
   }
   auto info = r_info.move_as_ok();
-
-  if (!MessageId::is_message_id_order_descending(info.messages)) {
+  if (info.messages.empty() && get_topic(topic_list, saved_messages_topic_id) == nullptr) {
+    return promise.set_value(
+        td_->messages_manager_->get_messages_object(0, dialog_id, {}, true, "on_get_topic_history"));
+  }
+  if (!MessageId::is_message_id_order_descending(info.messages, "on_get_topic_history")) {
     return promise.set_error(500, "Receive invalid response");
   }
 
+  auto *topic = add_topic(topic_list, saved_messages_topic_id, false);
   MessageId first_message_id;
   MessageId last_message_id;
   int32 last_message_date = 0;
@@ -2420,9 +2429,9 @@ void SavedMessagesManager::set_monoforum_topic_is_marked_as_unread(DialogId dial
   promise.set_value(Unit());
 }
 
-Status SavedMessagesManager::set_monoforum_topic_draft_message(
-    DialogId dialog_id, SavedMessagesTopicId saved_messages_topic_id,
-    td_api::object_ptr<td_api::draftMessage> &&draft_message) {
+Status SavedMessagesManager::set_monoforum_topic_draft_message(DialogId dialog_id,
+                                                               SavedMessagesTopicId saved_messages_topic_id,
+                                                               unique_ptr<DraftMessage> &&draft_message) {
   auto *topic_list = get_topic_list(dialog_id);
   if (topic_list == nullptr) {
     return Status::Error(400, "Topic not found");
@@ -2432,17 +2441,14 @@ Status SavedMessagesManager::set_monoforum_topic_draft_message(
     return Status::Error(400, "Topic not found");
   }
   if (topic->dialog_id_ != dialog_id) {
-    return Status::Error(400, "Topic draft can't be changed");
+    return Status::Error(400, "Topic can't have draft");
   }
 
-  TRY_RESULT(new_draft_message, DraftMessage::get_draft_message(td_, dialog_id, MessageId(), std::move(draft_message)));
-
-  do_set_topic_draft_message(topic, std::move(new_draft_message), false);
+  do_set_topic_draft_message(topic, std::move(draft_message), false);
 
   if (topic->is_changed_) {
-    if (!is_local_draft_message(topic->draft_message_)) {
-      save_draft_message(td_, dialog_id, saved_messages_topic_id, topic->draft_message_, Auto());
-    }
+    save_draft_message(td_, dialog_id, MessageTopic::monoforum(dialog_id, saved_messages_topic_id),
+                       topic->draft_message_, Auto());
     on_topic_changed(topic_list, topic, "set_monoforum_topic_draft_message");
   }
   return Status::OK();
@@ -2463,9 +2469,9 @@ void SavedMessagesManager::unpin_all_monoforum_topic_messages(DialogId dialog_id
     return promise.set_error(400, "Topic messages can't be unpinned");
   }
 
-  td_->messages_manager_->unpin_all_local_dialog_messages(dialog_id, MessageId(), saved_messages_topic_id);
+  td_->messages_manager_->unpin_all_local_dialog_messages(dialog_id, ForumTopicId(), saved_messages_topic_id);
 
-  td_->message_query_manager_->unpin_all_topic_messages_on_server(dialog_id, MessageId(), saved_messages_topic_id, 0,
+  td_->message_query_manager_->unpin_all_topic_messages_on_server(dialog_id, ForumTopicId(), saved_messages_topic_id, 0,
                                                                   std::move(promise));
 }
 
@@ -2484,14 +2490,14 @@ void SavedMessagesManager::read_all_monoforum_topic_reactions(DialogId dialog_id
     return promise.set_error(400, "Topic messages can't have reactions");
   }
 
-  td_->messages_manager_->read_all_local_dialog_reactions(dialog_id, MessageId(), saved_messages_topic_id);
+  td_->messages_manager_->read_all_local_dialog_reactions(dialog_id, ForumTopicId(), saved_messages_topic_id);
 
   do_set_topic_unread_reaction_count(topic, 0);
   if (!topic->is_changed_) {
     return promise.set_value(Unit());
   }
 
-  td_->message_query_manager_->read_all_topic_reactions_on_server(dialog_id, MessageId(), saved_messages_topic_id, 0,
+  td_->message_query_manager_->read_all_topic_reactions_on_server(dialog_id, ForumTopicId(), saved_messages_topic_id, 0,
                                                                   std::move(promise));
 
   on_topic_changed(topic_list, topic, "read_all_monoforum_topic_reactions");
